@@ -42,20 +42,37 @@ class SecurePRNG:
     def __init__(self, seed_int):
         # TODO: Initalize the SecurePRNG with the shared secret (seed_int) calculated from Diffie-Hellman key exchange.
         
+        #Turn the seed_int into a bytes version of itself rather than an int, 256 because thats the size of an int
+        byte_version = seed_int.to_bytes(256, 'big')
+
+        #find a sh256 hash of the seed, to ensure roll-back protection since hashing is one way
+        self.state = hashlib.sha256(byte_version).digest()
+
+
+        
     def generate(self, n_bytes):
         # TODO: Generates n bytes while ensuring Rollback Resistance. 
         output = b""
         while len(output) < n_bytes:
             # 1. Produce keystream block from current state
-
+            # makes a block using the hash using the state 
+            block = hashlib.sha256(self.state).digest()
+            #add block to output, pretty self explanatory
+            output += block
             # 2. Update state immediately after with a hash function (One-way progression)
-            
+            #simple hash
+            self.state = hashlib.sha256(self.state).digest()
+            #trims output to exact size (prewritten)
         return output[:n_bytes]
 
 
 
 def xor_crypt(data, prng):
     # TODO: Implement Simple XOR stream cipher logic.
+    #uses generate made earlier
+    stream = prng.generate(len(data))
+    #used ai to figure out technqiues to compare to chains of bytes, in ai disclosure
+    return bytes(a ^ b for a, b in zip(data, stream)) 
 
 
 
@@ -66,8 +83,10 @@ class Entity:
 
     def __init__(self, name):
         self.name = name
-        self.private_key =  
-        self.public_key =  
+        #wanted to hardcode, but that would make it useless, P is BIG therefore allows me to look in a large range for key
+        self.private_key =  secrets.randbelow(P)
+        #standard calculation, thanks to AI for again helping me find technique to make this possible, also in ai disclosure
+        self.public_key =  pow(G, self.private_key, P)
         self.session_prng = None
 
     def get_public_hex(self):
@@ -75,8 +94,9 @@ class Entity:
     
     # TODO: calculate and initialize shared secret with SecurePRNG
     def establish_session(self, partner_pub_hex):
-        partner_pub = 
-        shared_secret = 
+        #16 is there just to let computer know partner_pub_hex is base 16 not base 10 to avoid confusion
+        partner_pub = int(partner_pub_hex, 16)
+        shared_secret = pow(partner_pub, self.private_key, P)
         self.session_prng = SecurePRNG(shared_secret)
 
 
@@ -100,8 +120,10 @@ class Network:
 # Implement logic for Mallory
 class Mallory:
     def __init__(self):
-        self.private_key =
-        self.public_hex =
+        #Same as other entities, could i make the private key 0, like in the lab? but did like other entities for realism sake
+        self.private_key = secrets.randbelow(P)
+        #throwed an error, had to wrap in hex didnt notice the hex at the end of var name
+        self.public_hex = hex(pow(G, self.private_key, P))
         
         # Mallory maintains TWO sessions
         self.alice_prng = None
@@ -115,6 +137,10 @@ class Mallory:
 
             # TODO: If the sender is alice, generate a session PRNG with Alice. 
             # If the sender is Bob, generate a session PRNG with Bob.
+            if(sender == 'Alice'):
+                self.alice_prng = SecurePRNG(my_shared_secret)
+            else:
+                 self.bob_prng = SecurePRNG(my_shared_secret)
     
             return self.public_hex # Return Mallory's key instead to generate session PRNGs with Alice and Bob
         
@@ -124,11 +150,13 @@ class Mallory:
 
             # TODO: Decrypt the message using the appropriate session PRNG (Hint: Alice is the sender)
             # Print the plaintext message to the console for Mallory's spying purposes.
+            plaintext = xor_crypt(payload, self.alice_prng)
+            print(f"A little birdie told Mallory: {plaintext}")
 
             # Modify the plaintext message in some way
-
+            altered_plain = b'Aarav does know which one is Diffie and which is Hellman'
             # Then use the PRNG shared with bob to re-encrypt and return the message for Bob
-
+            return xor_crypt(altered_plain, self.bob_prng)
         return payload
 
 
@@ -170,7 +198,7 @@ def main():
     print("   [Status]: Shared Secret computed: S = B^a mod P = A^b mod P")
     
     print_step("Step 3: Secure Message Transmission")
-    message = b"<INPUT YOUR MESSAGE HERE>" # Put in your test message here
+    message = b"Aarav does not know which one is Diffie and which is Hellman" # Put in your test message here
     encrypted_msg = xor_crypt(message, alice.session_prng)
     delivered_data = net.send("Alice", "Bob", encrypted_msg)
     final_message = xor_crypt(delivered_data, bob.session_prng)
